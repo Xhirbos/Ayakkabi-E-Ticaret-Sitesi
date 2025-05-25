@@ -1,0 +1,52 @@
+# PHP Oturum Ayarları
+<IfModule mod_php7.c>
+    php_value session.cookie_lifetime 86400
+    php_value session.gc_maxlifetime 86400
+    php_value session.save_path "C:/Windows/Temp"
+    php_value session.use_cookies 1
+    php_value session.use_only_cookies 1
+    php_value session.use_strict_mode 1
+    php_value session.cookie_httponly 1
+    php_value session.cookie_secure 0
+    php_value session.use_trans_sid 0
+    php_value session.cache_limiter nocache
+</IfModule>
+
+<IfModule mod_php8.c>
+    php_value session.cookie_lifetime 86400
+    php_value session.gc_maxlifetime 86400
+    php_value session.save_path "C:/Windows/Temp"
+    php_value session.use_cookies 1
+    php_value session.use_only_cookies 1
+    php_value session.use_strict_mode 1
+    php_value session.cookie_httponly 1
+    php_value session.cookie_secure 0
+    php_value session.use_trans_sid 0
+    php_value session.cache_limiter nocache
+</IfModule>
+
+# Hata Ayıklama İzni
+php_flag display_errors on
+php_value error_reporting E_ALL
+
+# Önbellek Devre Dışı
+<IfModule mod_headers.c>
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires 0
+</IfModule>
+
+# PHP Yeniden Yazma Kuralları
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    
+    # HTTPS'ye yönlendirme (isteğe bağlı - aktif isterseniz # işaretini kaldırın)
+    # RewriteCond %{HTTPS} !=on
+    # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+    
+    # Oturum cookie'lerini korumak için klasik PHP dosyalarına izin ver
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule> 

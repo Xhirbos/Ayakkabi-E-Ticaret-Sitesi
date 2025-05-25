@@ -1,0 +1,456 @@
+<?php
+// Start session if not already started
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+require_once 'dbcon.php';
+
+// Set page title
+$pageTitle = "Arama Sonuçları";
+
+// Get search query
+$search_query = isset($_GET['q']) ? trim($_GET['q']) : '';
+
+// Default values
+$products = [];
+$categories = [];
+$totalProducts = 0;
+
+// If there's a search query
+if (!empty($search_query)) {
+    try {
+        // Search for products
+        $product_sql = "
+            SELECT 
+                u.urunID, 
+                u.urunAdi, 
+                u.temelFiyat, 
+                u.indirimliFiyat,
+                k.kategoriAdi,
+                COALESCE(
+                    (SELECT r.resimURL FROM urunresim r WHERE r.urunID = u.urunID AND r.anaResim = 1 LIMIT 1),
+                    (SELECT r.resimURL FROM urunresim r WHERE r.urunID = u.urunID LIMIT 1),
+                    'https://placehold.co/300x300/e63946/white?text=Resim+Yok'
+                ) AS resimURL
+            FROM 
+                urun u
+            JOIN 
+                kategori k ON u.kategoriID = k.kategoriID
+            WHERE 
+                (u.urunAdi LIKE ? OR u.urunAciklama LIKE ?)
+                AND u.aktif = 1
+            ORDER BY 
+                u.urunAdi
+        ";
+        
+        $product_stmt = $pdo->prepare($product_sql);
+        $product_stmt->execute(["%$search_query%", "%$search_query%"]);
+        $products = $product_stmt->fetchAll(PDO::FETCH_ASSOC);
+        $totalProducts = count($products);
+        
+        // Search for categories
+        $category_sql = "
+            SELECT 
+                kategoriID, 
+                kategoriAdi,
+                (SELECT COUNT(*) FROM urun WHERE kategoriID = k.kategoriID AND aktif = 1) AS urunSayisi
+            FROM 
+                kategori k
+            WHERE 
+                kategoriAdi LIKE ?
+            ORDER BY 
+                kategoriAdi
+        ";
+        
+        $category_stmt = $pdo->prepare($category_sql);
+        $category_stmt->execute(["%$search_query%"]);
+        $categories = $category_stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+    } catch (PDOException $e) {
+        // Log the error but show a friendly message to the user
+        error_log("Search error: " . $e->getMessage());
+        $error_message = "Arama sırasında bir hata oluştu. Lütfen daha sonra tekrar deneyin.";
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php echo htmlspecialchars($pageTitle); ?></title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        /* Account dropdown styles */
+        .header-button {
+            position: relative;
+        }
+        
+        .account-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            width: 200px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+            z-index: 100;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        
+        .header-button:hover .account-dropdown {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        
+        .account-dropdown ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .account-dropdown ul li {
+            border-bottom: 1px solid #f1f1f1;
+        }
+        
+        .account-dropdown ul li:last-child {
+            border-bottom: none;
+        }
+        
+        .account-dropdown ul li a {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            color: #333;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+        
+        .account-dropdown ul li a:hover {
+            background: #f9f9f9;
+            color: #e63946;
+        }
+        
+        .account-dropdown ul li a i {
+            margin-right: 10px;
+            color: #e63946;
+            width: 16px;
+            text-align: center;
+        }
+
+        /* Cart Button Styles */
+        .cart-button {
+            position: relative;
+        }
+        
+        .cart-count {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background-color: #e63946;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .cart-link {
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        /* Cart Dropdown Styles */
+        .cart-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            width: 320px;
+            background: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            z-index: 1000;
+            margin-top: 10px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+        }
+        
+        .cart-button:hover .cart-dropdown {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        
+        .cart-dropdown-header {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .cart-dropdown-header h5 {
+            margin: 0;
+            font-size: 16px;
+        }
+        
+        .cart-dropdown-items {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 0 15px;
+        }
+        
+        .cart-dropdown-item {
+            display: flex;
+            padding: 10px 0;
+            border-bottom: 1px solid #f1f1f1;
+        }
+        
+        .cart-dropdown-item-img {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        
+        .cart-dropdown-item-details {
+            flex: 1;
+        }
+        
+        .cart-dropdown-item-name {
+            font-weight: 500;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        
+        .cart-dropdown-item-variant {
+            font-size: 12px;
+            color: #777;
+        }
+        
+        .cart-dropdown-item-price {
+            font-size: 14px;
+            font-weight: 500;
+            color: #e63946;
+        }
+        
+        .cart-dropdown-footer {
+            padding: 15px;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .cart-total {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .loading {
+            padding: 20px;
+            text-align: center;
+            color: #777;
+        }
+        
+        .cart-empty-message {
+            padding: 20px;
+            text-align: center;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+
+<?php include 'header.php'; ?>
+
+<main class="container my-4">
+    <div class="row">
+        <div class="col-12">
+            <h1>Arama Sonuçları</h1>
+            <p class="lead">
+                "<?php echo htmlspecialchars($search_query); ?>" için arama sonuçları
+            </p>
+            
+            <?php if (empty($search_query)): ?>
+                <div class="alert alert-info">
+                    Lütfen arama yapmak için bir anahtar kelime girin.
+                </div>
+            <?php elseif (empty($products) && empty($categories)): ?>
+                <div class="alert alert-warning">
+                    Aramanızla eşleşen sonuç bulunamadı.
+                </div>
+            <?php endif; ?>
+            
+            <?php if (!empty($categories)): ?>
+                <section class="mb-5">
+                    <h2>Kategoriler</h2>
+                    <div class="row">
+                        <?php foreach ($categories as $category): ?>
+                            <div class="col-md-4 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h5 class="card-title"><?php echo htmlspecialchars($category['kategoriAdi']); ?></h5>
+                                        <p class="card-text"><?php echo $category['urunSayisi']; ?> ürün</p>
+                                        <a href="category.php?id=<?php echo $category['kategoriID']; ?>" class="btn btn-primary">Kategoriyi Görüntüle</a>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+            <?php endif; ?>
+            
+            <?php if (!empty($products)): ?>
+                <section>
+                    <h2>Ürünler (<?php echo $totalProducts; ?>)</h2>
+                    <div class="row">
+                        <?php foreach ($products as $product): ?>
+                            <div class="col-md-4 col-lg-3 mb-4">
+                                <div class="card h-100 product-card">
+                                    <a href="product-detail.php?id=<?php echo $product['urunID']; ?>">
+                                        <img src="<?php echo htmlspecialchars($product['resimURL']); ?>" 
+                                             class="card-img-top" 
+                                             alt="<?php echo htmlspecialchars($product['urunAdi']); ?>">
+                                    </a>
+                                    <div class="card-body d-flex flex-column">
+                                        <h5 class="card-title">
+                                            <a href="product-detail.php?id=<?php echo $product['urunID']; ?>" class="product-link">
+                                                <?php echo htmlspecialchars($product['urunAdi']); ?>
+                                            </a>
+                                        </h5>
+                                        <p class="card-text text-muted">
+                                            <small><?php echo htmlspecialchars($product['kategoriAdi']); ?></small>
+                                        </p>
+                                        <div class="price-container mt-auto">
+                                            <?php if (!empty($product['indirimliFiyat']) && $product['indirimliFiyat'] < $product['temelFiyat']): ?>
+                                                <span class="current-price"><?php echo number_format($product['indirimliFiyat'], 2, ',', '.'); ?> TL</span>
+                                                <span class="original-price"><?php echo number_format($product['temelFiyat'], 2, ',', '.'); ?> TL</span>
+                                            <?php else: ?>
+                                                <span class="current-price"><?php echo number_format($product['temelFiyat'], 2, ',', '.'); ?> TL</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+            <?php endif; ?>
+        </div>
+    </div>
+</main>
+
+<?php include 'footer.php'; ?>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Authentication JS -->
+<script src="auth.js"></script>
+<script>
+// Toast mesajı gösterme fonksiyonu
+function showToast(message, type = 'info') {
+    // Önceki aynı tipteki toast'ları temizle
+    clearExistingToasts(message, type);
+    
+    // Toast container kontrolü
+    let toastContainer = $('.toast-container');
+    if (toastContainer.length === 0) {
+        toastContainer = $('<div class="toast-container"></div>');
+        $('body').append(toastContainer);
+    }
+    
+    // Toast ID oluştur
+    const toastId = 'toast-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
+    
+    // Toast içeriği oluştur
+    let iconHtml = '';
+    switch (type) {
+        case 'success':
+            iconHtml = '<i class="fas fa-check-circle"></i>';
+            break;
+        case 'error':
+            iconHtml = '<i class="fas fa-exclamation-circle"></i>';
+            break;
+        case 'warning':
+            iconHtml = '<i class="fas fa-exclamation-triangle"></i>';
+            break;
+        default:
+            iconHtml = '<i class="fas fa-info-circle"></i>';
+    }
+    
+    // Toast elemanını oluştur
+    const toast = $(`
+        <div id="${toastId}" class="toast ${type}">
+            <div class="toast-icon">${iconHtml}</div>
+            <div class="toast-content">${message}</div>
+            <button class="toast-close" onclick="closeToast('${toastId}')">&times;</button>
+        </div>
+    `);
+    
+    // Toast'u container'a ekle
+    toastContainer.append(toast);
+    
+    // Toast'u göster
+    setTimeout(() => {
+        toast.addClass('show');
+    }, 10);
+    
+    // 5 saniye sonra kapat
+    setTimeout(() => {
+        closeToast(toastId);
+    }, 5000);
+}
+
+// Toast'u kapatma fonksiyonu
+function closeToast(toastId) {
+    const toast = $(`#${toastId}`);
+    toast.removeClass('show');
+    setTimeout(() => {
+        toast.remove();
+    }, 300);
+}
+
+// Benzer mesajlı toast'ları temizle
+function clearExistingToasts(message, type) {
+    $('.toast').each(function() {
+        const toastType = $(this).hasClass(type);
+        const toastMessage = $(this).find('.toast-content').text();
+        
+        if (toastType && toastMessage === message) {
+            const toastId = $(this).attr('id');
+            closeToast(toastId);
+        }
+    });
+}
+
+// Bütün toast'ları temizle
+function clearAllToasts() {
+    $('.toast').each(function() {
+        const toastId = $(this).attr('id');
+        closeToast(toastId);
+    });
+}
+</script>
+</body>
+</html> 
